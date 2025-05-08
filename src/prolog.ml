@@ -11,12 +11,12 @@ let (<<) f g x = f(g(x))
 (* Formula definitions *)
 
 (* term algebra T(F, X) *)
-type var = string
+type var = int
 
 
 type term = 
   | Var of var (* a var is implicitly universally quantified in clauses *)
-  | Fun of string * term list
+  | Fun of int * term list
 
 let is_var = function
   | Var _ -> true
@@ -37,7 +37,7 @@ let dest_fun = function
 
 (* simple predicate logic atoms *)
 type predicate = 
-  | Predicate of string
+  | Predicate of int
 
 type formula =
   | Atom of predicate * term list
