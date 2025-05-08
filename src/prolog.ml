@@ -1,0 +1,154 @@
+
+(* 
+    Prolog-like proof search engine
+*)
+
+(* Formula definitions *)
+
+(* term algebra T(F, X) *)
+type var = string
+
+
+type term = 
+  | Var of var (* a var is implicitly universally quantified in clauses *)
+  | Fun of string * term list
+
+let is_var = function
+  | Var _ -> true
+  | _ -> false
+
+let is_fun = function
+  | Fun _ -> true
+  | _ -> false
+
+let is_const = function
+  | Fun (_, []) -> true
+  | _ -> false
+
+let dest_fun = function
+  | Fun (f, args) -> f, args
+  | _ -> failwith "dest_fun: not a function"
+
+
+(* simple predicate logic atoms *)
+type predicate = 
+  | Predicate of string
+
+type formula =
+  | Atom of predicate * term list
+
+type clause = 
+  | Clause of formula * formula list (* head :- body1 /\ body2 /\ ... *)
+
+let is_fact = function
+  | Clause (Atom _, []) -> true
+  | _ -> false
+
+(* fact database *)
+type db = clause list
+
+type clause_set = clause list
+
+type subst = (var * term) list
+
+let empty_subst = []
+
+(* Check if `a` maps to `b` under `sub` *)
+let substs sub a b = List.assoc a sub = b
+
+(* add a substitution to a substitution list *)
+let subst_add sub a b = (a, b) :: List.remove_assoc a sub
+
+(* add a substitution knowing it is safe to add, i.e. a is not in the list *)
+let subst_add_unsafe sub a b = (a, b) :: sub
+
+(* apply a substitution to a term *)
+let rec apply_subst sub t =
+  match t with
+  | Var v -> 
+    (try List.assoc v sub with Not_found -> t)
+  | Fun (f, args) -> 
+    Fun (f, List.map (apply_subst sub) args)
+
+(* apply a substitution to a formula *)
+let apply_subst_formula sub f =
+  match f with
+  | Atom (p, ts) -> 
+    Atom (p, List.map (apply_subst sub) ts)
+
+(* apply a substitution to a clause *)
+let apply_subst_clause sub (Clause (head, body)) =
+  Clause (apply_subst_formula sub head, List.map (apply_subst_formula sub) body)
+
+(* returns a minimal substitution if t1 can be matched against t2, by
+instantiating variables in t1 alone, None if no matches *)
+let rec term_matches (partial: subst option) (t1: term) (t2: term) : subst option =
+  match partial with
+  | None -> None
+  | Some s ->
+    match t1, t2 with
+    | Var v1, Var v2 -> 
+      if v1 = v2 then Some s
+      else if substs s v1 (Var v2) then Some s
+      else Some (subst_add_unsafe s v1 (Var v2))
+
+    | Fun (f1, args1), Fun (f2, args2) when f1 = f2 && List.length args1 = List.length args2 ->
+      List.fold_left2 term_matches (Some s) args1 args2
+
+    | _ -> None 
+
+(* returns a minimal substitution if f1 can be matched against f2, by
+instantiating variables in f1 alone, None if no matches *)
+let matches (f1: formula) (f2: formula) : subst option = 
+  match f1, f2 with
+  | Atom (p, ts), Atom (q, ss) when p = q && List.compare_lengths ts ss == 0 ->
+      List.fold_left2 term_matches (Some empty_subst) ts ss
+  | _ -> None
+
+let match_and_resolve (clause: clause) (goal: formula): formula list option =
+  match clause with
+  | Clause (head, body) ->
+    let sub_opt = matches head goal in
+    match sub_opt with
+    | None -> None
+    | Some s ->
+      (* unified body atoms as new goals *)
+      let body' = body |> List.map (apply_subst_formula s) in
+      Some body'
+
+(* dfs *)
+let dfs (clauses: clause_set) (goal: formula) : clause list =
+  (* prevent loops *)
+  let visited_tbl = Hashtbl.create 32 in
+  let visited g = 
+    if Hashtbl.mem visited_tbl g then
+      true
+    else begin
+      Hashtbl.add visited_tbl g ();
+      false
+    end
+  in
+  let rec dfs_step db goals acc =
+    match goals with
+    | [] -> Some acc (* no more goals, steps complete *)
+    | g :: gs -> 
+      if visited g then 
+        (* this is a non-terminating branch *)
+        (* backtrack *)
+        None
+      else if List.mem db g then
+        (* this is a fact, discharge goal *)
+        dfs_step db gs (g :: acc)
+      else
+        (* resolve against clauses that match, exploring each branch while
+        backtracking *)
+        None
+
+  in
+  []
+
+(* API *)
+
+(* given a set of clauses and a goal, produce a list of steps that can be sequentially applied  *)
+let query (clauses: clause_set) (goal: formula) : clause list =
+  []

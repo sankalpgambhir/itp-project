@@ -7,7 +7,7 @@
  (public_name colog.plugin) 
 
  (synopsis "Coq Plugin for Automatic Discharge of Inductive Prop Goals")
- (flags :standard -w -27 -w -33)
+ (flags :standard -w -27 -w -33 -w -26)
  
  (libraries                         ; OCaml libraries we want to link with
    coq-core.vernac                  ; Needed for vernac extend.
