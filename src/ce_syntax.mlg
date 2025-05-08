@@ -19,6 +19,10 @@ END
 TACTIC EXTEND ChcAuto
 | [ "chc_auto" ] ->
   {
-    Ce_api.chc_auto
+    Ce_api.chc_auto ()
+  }
+| [ "chc_auto" "with" "depth" int(d) ] ->
+  {
+    Ce_api.chc_auto ~max_depth:d ()
   }
 END
