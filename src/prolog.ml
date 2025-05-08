@@ -3,6 +3,11 @@
     Prolog-like proof search engine
 *)
 
+(* utils *)
+
+(* function composition *)
+let (<<) f g x = f(g(x))
+
 (* Formula definitions *)
 
 (* term algebra T(F, X) *)
@@ -43,6 +48,8 @@ type clause =
 let is_fact = function
   | Clause (Atom _, []) -> true
   | _ -> false
+
+let clause_of f = Clause (f, [])
 
 (* fact database *)
 type db = clause list
@@ -117,10 +124,10 @@ let match_and_resolve (clause: clause) (goal: formula): formula list option =
       Some body'
 
 (* dfs *)
-let dfs (clauses: clause_set) (goal: formula) : clause list =
+let dfs (clauses: clause_set) (goal: formula) : clause list option =
   (* prevent loops *)
   let visited_tbl = Hashtbl.create 32 in
-  let visited g = 
+  let visited_or_visit g = 
     if Hashtbl.mem visited_tbl g then
       true
     else begin
@@ -128,27 +135,62 @@ let dfs (clauses: clause_set) (goal: formula) : clause list =
       false
     end
   in
-  let rec dfs_step db goals acc =
+  (* run dfs with backtracking to reduce a list of goals to a fact db *)
+  (* returns the list of clauses resolved against (in reverse order) *)
+  let rec dfs_step cs db goals acc =
     match goals with
     | [] -> Some acc (* no more goals, steps complete *)
     | g :: gs -> 
-      if visited g then 
+      if visited_or_visit g then 
         (* this is a non-terminating branch *)
         (* backtrack *)
         None
-      else if List.mem db g then
+      else if List.mem g db then
         (* this is a fact, discharge goal *)
-        dfs_step db gs (g :: acc)
+        dfs_step cs db gs (clause_of g :: acc)
       else
         (* resolve against clauses that match, exploring each branch while
         backtracking *)
-        None
-
+        (* resolve this goal *)
+        (* intentionally reuses the full clause set *)
+        let res = explore cs db g gs acc in
+        match res with
+        | None -> 
+          (* cannot prove this goal, fail *)
+          None
+        | Some path ->
+          (* found a path, continue with other goals *)
+          dfs_step cs db gs (path @ acc)
+  (* explore the branches that reduce a given goal, backtracking and resuming
+  dfs as necessary*)
+  and explore cs db g gs acc =
+    match cs with
+    | [] -> None
+    | c :: cs' ->
+      match match_and_resolve c g with
+      | None -> 
+        (* no match, continue exploring *)
+        explore cs' db g gs acc
+      | Some new_goals ->
+        (* add the new goals to the list of goals, restart dfs *)
+        let branch = dfs_step cs db (new_goals @ gs) (c :: acc) in
+        match branch with
+        | Some _ -> branch
+        | None -> 
+          (* backtrack, continue exploring *)
+          explore cs' db g gs acc
   in
-  []
+  let opt_dest_fact = function 
+    | Clause (f, []) -> Some f 
+    | _ -> None
+  in
+  let db = List.filter_map opt_dest_fact clauses in
+  let cs = List.filter (not << is_fact) clauses in 
+  let dfs_res = dfs_step cs db [goal] [] in
+    Option.map List.rev dfs_res
 
 (* API *)
 
 (* given a set of clauses and a goal, produce a list of steps that can be sequentially applied  *)
-let query (clauses: clause_set) (goal: formula) : clause list =
-  []
+let query (clauses: clause_set) (goal: formula) : clause list option =
+  dfs clauses goal
