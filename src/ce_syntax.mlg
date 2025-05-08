@@ -1,0 +1,17 @@
+DECLARE PLUGIN "colog.plugin"
+
+
+{
+
+open Ltac_plugin
+(*open Pp*)
+open Stdarg
+
+}
+
+TACTIC EXTEND DoNothing
+| [ "dno" int(i) ] ->
+  {
+    Ce_api.do_nothing i
+  }
+END
