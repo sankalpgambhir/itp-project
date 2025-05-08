@@ -15,3 +15,10 @@ TACTIC EXTEND DoNothing
     Ce_api.do_nothing i
   }
 END
+
+TACTIC EXTEND ChcAuto
+| [ "chc_auto" ] ->
+  {
+    Ce_api.chc_auto
+  }
+END

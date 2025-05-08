@@ -22,16 +22,16 @@ open Proofview.Notations
 
 module PV = Proofview
 
-let do_nothing i : unit PV.tactic = 
+let do_nothing i : unit PV.tactic =
   Proofview.Goal.enter begin fun gl ->
     let env = Proofview.Goal.env gl in
     let sigma = Proofview.Goal.sigma gl in
     let concl = Proofview.Goal.concl gl in
 
     (* normalize and extract the inductive, or raise error *)
-    let ((ind, u), t) = 
-      try pf_apply Tacred.reduce_to_atomic_ind gl concl 
-      with | UserError _ -> 
+    let ((ind, u), t) =
+      try pf_apply Tacred.reduce_to_atomic_ind gl concl
+      with | UserError _ ->
         let msg = Pp.str "The goal is not an inductive type." in
         CErrors.user_err msg
     in
@@ -45,7 +45,7 @@ let do_nothing i : unit PV.tactic =
     let _ = Feedback.msg_info (Pp.str "InductiveFD: " ++ Pp.str (Names.MutInd.to_string (fst indfd))) in
 
     (* realargs *)
-    let _ = 
+    let _ =
       Feedback.msg_info (Pp.str "Real args: ");
       List.iteri
         (fun idx arg ->
@@ -61,7 +61,7 @@ let do_nothing i : unit PV.tactic =
 
     (* extract constructor names and types *)
 
-    let (constrs, constrs_types) = 
+    let (constrs, constrs_types) =
       let constrs = Inductiveops.get_constructors env indf in
       let constrs_types = constrs |> Array.map (fun cstr -> type_of_constructor env cstr.cs_cstr) in
       constrs, constrs_types
@@ -85,15 +85,15 @@ let do_nothing i : unit PV.tactic =
 
     (* what does a forall look like *)
     (* destruct a constructor type into args and res *)
-    let (binder, args, res) = 
+    let (binder, args, res) =
       try destProd sigma constrs_types.(1)
-      with | UserError _ -> 
+      with | UserError _ ->
         let msg = Pp.str "The constructor type is not a product." in
         CErrors.user_err msg
     in
 
     (* print the binder, args and res *)
-    let _ = 
+    let _ =
       Feedback.msg_info (Pp.str "Binder: ");
       (* Feedback.msg_info ( env sigma binder); *)
       Feedback.msg_info (Pp.str "Args: ");
@@ -115,3 +115,26 @@ let do_nothing i : unit PV.tactic =
   end
 
 (* Tactic: oltauto with certification*)
+
+(* Simple proof search for inductive goals *)
+let rec solve_inductive_goal gl =
+  let env = Proofview.Goal.env gl in
+  let sigma = Proofview.Goal.sigma gl in
+  let concl = Proofview.Goal.concl gl in
+  match try Some (pf_apply Tacred.reduce_to_atomic_ind gl concl) with _ -> None with
+  | Some ((ind, u), t) ->
+      let IndType (indf, _realargs) = find_rectype env sigma t in
+      let constrs = Inductiveops.get_constructors env indf in
+      let rec try_constructors = function
+        | [] -> Tacticals.tclZEROMSG (Pp.str "No constructor applies.")
+        | cstr :: rest ->
+            let c = EConstr.mkConstructU cstr.cs_cstr in
+            Tacticals.tclORELSE
+              (Tacticals.tclTHEN (Tactics.apply c) (Tacticals.tclREPEAT (Proofview.Goal.enter solve_inductive_goal)))
+              (try_constructors rest)
+      in
+      try_constructors (Array.to_list constrs)
+  | None -> Tacticals.tclIDTAC
+
+(* Export the tactic for use in a grammar extension *)
+let chc_auto = Proofview.Goal.enter solve_inductive_goal

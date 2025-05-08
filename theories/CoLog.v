@@ -7,8 +7,14 @@ Inductive PP: nat -> Prop :=
 Inductive QQ: Prop :=
   | Q0 : QQ.
 
-Goal PP 5.
+(* Goal PP 5.
   Show Proof.
   dno 5.
+  Show Proof.
+Abort. *)
+
+Goal PP 5.
+  Show Proof.
+  chc_auto.
   Show Proof.
 Abort.
