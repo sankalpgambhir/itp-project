@@ -24,6 +24,14 @@ open Evd
 
 module PV = Proofview
 
+let ind_family_comp (indf1: inductive_family) (indf2: inductive_family) : int =
+  let ((ind1, _), _) = dest_ind_family indf1 in
+  let ((ind2, _), _) = dest_ind_family indf2 in
+  let mc = MutInd.CanOrd.compare (fst ind1) (fst ind2) in
+  if mc = 0 then
+    Stdlib.compare (snd ind1) (snd ind2)
+  else mc
+
 (* is `t` an instance of an inductive proposition? destruct and return it if yes *)
 let dest_inductive_prop env sigma t : inductive_type option =
   let resty = 
@@ -51,18 +59,21 @@ let dest_cons_inductives env sigma (ty: etypes) : inductive_family list =
   in
     ind_fam_args
 
-let cons_types_of_family env sigma (indf: inductive_family) : etypes list =
+(* retrieve the types of constructors for an inductive family *)
+let cons_types_of_family env _sigma (indf: inductive_family) : etypes list =
   let cons = Inductiveops.get_constructors env indf in
   let tarray = Array.map (fun cstr -> type_of_constructor env cstr.cs_cstr) cons in
   let tlist = Array.to_list tarray in
   tlist
 
-(* find the inductive families backward reachable from the constructors of an inductive family *)
+(* find the inductive families backward-reachable from the constructors of an inductive family *)
 let reachable_inductive_families env sigma (indf: inductive_family) : inductive_family list =
   let step_reachable_inductive_families (indfs: inductive_family list) : inductive_family list =
     indfs
       |> List.concat_map (cons_types_of_family env sigma)
       |> List.concat_map (dest_cons_inductives env sigma)
+      |> List.append indfs (* ensure monotonicity *)
+      |> List.sort_uniquize ind_family_comp (* keep set semantics *)
   in
 
   let rec fix f x = 
@@ -70,7 +81,7 @@ let reachable_inductive_families env sigma (indf: inductive_family) : inductive_
     if y = x then x else fix f y
   in
 
-  fix step_reachable_inductive_families [indf]
+  step_reachable_inductive_families [indf]
 
 let do_nothing i : unit PV.tactic =
   Proofview.Goal.enter begin fun gl ->
@@ -91,8 +102,8 @@ let do_nothing i : unit PV.tactic =
 
     let ((indfd, _), _) = dest_ind_family indf in
 
-    let _ = Feedback.msg_info (Pp.str "Inductive: " ++ Pp.str (Names.MutInd.to_string (fst ind))) in
-    let _ = Feedback.msg_info (Pp.str "InductiveFD: " ++ Pp.str (Names.MutInd.to_string (fst indfd))) in
+    let _ = Feedback.msg_info (Pp.str "Inductive: " ++ Pp.str (Names.MutInd.to_string (fst ind)) ++ Pp.str " " ++ Pp.int (snd ind)) in
+    let _ = Feedback.msg_info (Pp.str "InductiveFD: " ++ Pp.str (Names.MutInd.to_string (fst indfd)) ++ Pp.str " " ++ Pp.int (snd indfd)) in
 
     (* realargs *)
     let _ =
@@ -133,33 +144,27 @@ let do_nothing i : unit PV.tactic =
       ()
     in
 
-    (* what does a forall look like *)
-    (* destruct a constructor type into args and res *)
-    let (binder, args, res) =
-      try destProd sigma constrs_types.(1)
-      with | UserError _ ->
-        let msg = Pp.str "The constructor type is not a product." in
-        CErrors.user_err msg
+    let reachable_families = 
+      reachable_inductive_families env sigma indf
     in
 
-    (* print the binder, args and res *)
+    (* print list of reachable families *)
     let _ =
-      Feedback.msg_info (Pp.str "Binder: ");
-      (* Feedback.msg_info ( env sigma binder); *)
-      Feedback.msg_info (Pp.str "Args: ");
-      (* List.iteri *)
-      (fun arg ->
-        Feedback.msg_info (
-          str " Arg "
-          (* ++ str (string_of_int idx) *)
-          ++ str " : "
-          ++ Printer.pr_econstr_env env sigma arg
+      Feedback.msg_info (Pp.str "Reachable families: ");
+      List.iteri
+        (fun idx indf ->
+          let ((indfd, _), _) = dest_ind_family indf in
+          Feedback.msg_info (
+            str " Inductive family "
+            ++ str (string_of_int idx)
+            ++ str " : "
+            ++ Pp.str (Names.MutInd.to_string (fst indfd))
+            ++ Pp.str " #"
+            ++ Pp.int (snd indfd)
+          )
         )
-      ) args;
-      Feedback.msg_info (Pp.str "Res: ");
-      Feedback.msg_info (Printer.pr_econstr_env env sigma res)
+        reachable_families
     in
-
     (* do nothing for now *)
     Tacticals.tclIDTAC
   end
