@@ -23,6 +23,21 @@ open Auto
 
 module PV = Proofview
 
+(* is `t` an instance of an inductive proposition? destruct and return it if yes *)
+let dest_inductive_prop env sigma t : ((inductive * EInstance.t) * Evd.econstr) option =
+  let resty = 
+    try Some (Tacred.reduce_to_atomic_ind env sigma t)
+    with | UserError _ ->
+      None
+  in
+  (* check if this is a prop *)
+  Option.filter
+    begin fun _ ->
+      let mind = get_sort_of env sigma t in
+      ESorts.is_prop sigma mind
+    end
+    resty
+
 let do_nothing i : unit PV.tactic =
   Proofview.Goal.enter begin fun gl ->
     let env = Proofview.Goal.env gl in
