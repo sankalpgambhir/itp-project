@@ -20,14 +20,15 @@ open Equality
 open Tactypes
 open Proofview.Notations
 open Auto
+open Evd
 
 module PV = Proofview
 
 (* is `t` an instance of an inductive proposition? destruct and return it if yes *)
-let dest_inductive_prop env sigma t : ((inductive * EInstance.t) * Evd.econstr) option =
+let dest_inductive_prop env sigma t : inductive_type option =
   let resty = 
-    try Some (Tacred.reduce_to_atomic_ind env sigma t)
-    with | UserError _ ->
+    try Some (find_rectype env sigma t)
+    with | Not_found ->
       None
   in
   (* check if this is a prop *)
@@ -37,6 +38,39 @@ let dest_inductive_prop env sigma t : ((inductive * EInstance.t) * Evd.econstr) 
       ESorts.is_prop sigma mind
     end
     resty
+
+(* given a (constructor) type, extract argument types from it, and filter discovered inductive props from it *)
+let dest_cons_inductives env sigma (ty: etypes) : inductive_family list =
+  let (annotated_args, concl) = decompose_prod sigma ty in
+  let args = List.map snd annotated_args in
+  let ind_ty_args = (* set of ((ind, u), t) triples *)
+    List.map_filter (dest_inductive_prop env sigma) args
+  in
+  let ind_fam_args = 
+    List.map (fun (IndType (indf, _realargs)) -> indf) ind_ty_args
+  in
+    ind_fam_args
+
+let cons_types_of_family env sigma (indf: inductive_family) : etypes list =
+  let cons = Inductiveops.get_constructors env indf in
+  let tarray = Array.map (fun cstr -> type_of_constructor env cstr.cs_cstr) cons in
+  let tlist = Array.to_list tarray in
+  tlist
+
+(* find the inductive families backward reachable from the constructors of an inductive family *)
+let reachable_inductive_families env sigma (indf: inductive_family) : inductive_family list =
+  let step_reachable_inductive_families (indfs: inductive_family list) : inductive_family list =
+    indfs
+      |> List.concat_map (cons_types_of_family env sigma)
+      |> List.concat_map (dest_cons_inductives env sigma)
+  in
+
+  let rec fix f x = 
+    let y = f x in
+    if y = x then x else fix f y
+  in
+
+  fix step_reachable_inductive_families [indf]
 
 let do_nothing i : unit PV.tactic =
   Proofview.Goal.enter begin fun gl ->
