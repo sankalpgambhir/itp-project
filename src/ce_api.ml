@@ -267,7 +267,7 @@ let proof_tree_to_term
         (* variable assignments shouldn't refer to other vars *)
       in
       let proof_args = List.map aux branches in
-      let args = Array.of_list (List.rev (var_args @ proof_args)) in
+      let args = Array.of_list (var_args @ proof_args) in
       EConstr.mkApp (constr, args)
     | Prolog.Open _ ->
       CErrors.user_err (Pp.str "Open branches in proof tree")
@@ -341,8 +341,6 @@ let horn_proof_search () : unit PV.tactic =
       in
 
       Tactics.exact_check tt
-
-      (* Tacticals.tclIDTAC *)
   end
 
 let do_nothing i : unit PV.tactic =
