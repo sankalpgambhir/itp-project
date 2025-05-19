@@ -50,6 +50,8 @@ let is_fact = function
   | Clause (_, _, Atom _, []) -> true
   | _ -> false
 
+let dest_id (Clause (id, _, _, _)) = id
+
 let dest_hd (Clause (_, _, f, _)) = f
   
 (* fact database *)
@@ -74,6 +76,41 @@ type proof_tree =
   (* this corresponds to proofs of universally quantified atoms *)
   | Open of formula 
   (* Open of goal *)
+
+
+(* pretty print a term *)
+let rec string_of_term (t: term) : string =
+  match t with
+  | Var v -> Printf.sprintf "X%d" v
+  | Fun (f, args) -> 
+    let args_str = String.concat ", " (List.map string_of_term args) in
+    Printf.sprintf "F%d(%s)" f args_str
+
+(* pretty print a formula *)
+let string_of_formula (f: formula) : string =
+  match f with
+  | Atom (Predicate p, ts) -> 
+    let ts_str = String.concat ", " (List.map string_of_term ts) in
+    Printf.sprintf "P%d(%s)" p ts_str
+
+(* pretty print a clause *)
+let string_of_clause (c: clause) : string =
+  match c with
+  | Clause (id, nv, head, body) -> 
+    let body_str = String.concat " /\\ " (List.map string_of_formula body) in
+    Printf.sprintf "C%d: %s :- %s" id (string_of_formula head) body_str
+
+(* print proof trees *)
+let rec print_proof_tree (pt: proof_tree) : string =
+  match pt with
+  | Leaf (IClause (s, c)) -> 
+    Printf.sprintf "Leaf: %s\n" (string_of_clause c)
+  | Node (IClause (s, c), proofs) -> 
+    Printf.sprintf "Node: %s\n%s" (string_of_clause c) ((List.map print_proof_tree proofs) |> String.concat "")
+  | Open f -> 
+    Printf.sprintf "Open: %s\n" (string_of_formula f)
+
+
   
 let empty_subst = []
 
@@ -221,9 +258,3 @@ let dfs (clauses: clause_set) (goal: formula) : proof_tree option =
             )
   in
   dfs_step [] goal
-
-(* API *)
-
-(* given a set of clauses and a goal, produce a list of steps that can be sequentially applied  *)
-let query (clauses: clause_set) (goal: formula) : proof_tree option =
-  dfs clauses goal
