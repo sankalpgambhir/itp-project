@@ -180,6 +180,29 @@ let match_and_resolve (clause: clause) (goal: formula): (subst * formula list) o
       let body' = body |> List.map (apply_subst_formula s) in
       Some (s, body')
 
+module Formula_set = Set.Make(
+  struct type t = formula
+
+  let rec tcmp a b =
+    match a, b with
+    | Var v1, Var v2 -> compare v1 v2
+    | Var v1, _ -> -1
+    | _, Var v2 -> 1
+    | Fun (f1, args1), Fun (f2, args2) ->
+      let cmp = compare f1 f2 in
+      if cmp = 0 then
+        List.compare tcmp args1 args2
+      else cmp
+      
+  let compare a b =
+    match a, b with
+    | Atom (p1, ts1), Atom (p2, ts2) ->
+      let cmp = compare p1 p2 in
+      if cmp = 0 then
+        List.compare tcmp ts1 ts2
+      else cmp
+end)
+
 let dfs (clauses: clause_set) (goal: formula) : proof_tree option =
   (* memoize *)
   let proof_cache = Hashtbl.create 32 in
@@ -194,7 +217,7 @@ let dfs (clauses: clause_set) (goal: formula) : proof_tree option =
     if Hashtbl.mem proof_cache goal then
       (* already proved or disproved *)
       Hashtbl.find proof_cache goal
-    else if List.mem goal visited then
+    else if Formula_set.mem goal visited then
       (* this is a non-terminating branch *)
       (* backtrack *)
       (* it is safe (and recommended) to check the cache and visited in this order *)
@@ -218,7 +241,7 @@ let dfs (clauses: clause_set) (goal: formula) : proof_tree option =
         proof
       | None ->
         (* attempt to branch and resolve *)
-        let visited' = goal :: visited in 
+        let visited' = Formula_set.add goal visited in 
         clauses
           |> List.find_map (fun c ->
             (* 
@@ -259,4 +282,4 @@ let dfs (clauses: clause_set) (goal: formula) : proof_tree option =
               proof
             )
   in
-  dfs_step [] goal
+  dfs_step Formula_set.empty goal
