@@ -110,11 +110,15 @@ let rec constr_to_term env sigma vmap (tmap: constrtbl) (t: econstr) : Prolog.te
   (* we assume a first-order abstraction over the terms *)
   (* functions are not checked or expanded further *)
   (* arguments are transformed recursively *)
-  let func, args = decompose_app sigma t in
-  let fid = hashtbl_get_or_inc tmap func in
-  let args_list = Array.to_list args in
-  let args', tmap' = constr_list_to_term env sigma vmap tmap args_list in
-  Prolog.Fun (fid, args'), tmap'
+  if isVar sigma t && List.mem_assoc t vmap then
+    let vi = List.assoc t vmap in
+    Prolog.Var vi, tmap
+  else 
+    let func, args = decompose_app sigma t in
+    let fid = hashtbl_get_or_inc tmap func in
+    let args_list = Array.to_list args in
+    let args', tmap' = constr_list_to_term env sigma vmap tmap args_list in
+    Prolog.Fun (fid, args'), tmap'
 and constr_list_to_term env sigma vmap (tmap: constrtbl) (ts: econstr list) : Prolog.term list * constrtbl =
   let args', tmap' =
     List.fold_right (fun t (acc, tmap) -> 
@@ -143,6 +147,18 @@ and constr_list_to_formula env sigma vmap (tmap: constrtbl) (ts: econstr list) :
 
 (* construct an internal wrapped clause from a constructor type *)
 let clause_of_type env sigma (cstr_id: int) (ty: etypes) : Prolog.clause =
+  (*
+    Process:
+
+    - unfold product type
+    - if this is a term param, give it a new id
+    - if this is a prop, turn it into a formula
+    - no terms should show up after any prop
+    - there is a more precise fragment criterion we assume (unchecked):
+      - prop terms are not proof dependant (i.e. on each other)
+      - FOR NOW: some inductive param/concl explicitly depends on each term param 
+  *)
+
   (* decompose the product type *)
   (* and separate the term arguments, i.e. non-props *)
   let (annotated_args, concl) = decompose_prod sigma ty in
@@ -160,31 +176,24 @@ let clause_of_type env sigma (cstr_id: int) (ty: etypes) : Prolog.clause =
     parameter is proof relevant. This is not *us*-relevant, at least.
   *)
 
-  (*
-    Process:
-
-    - unfold product type
-    - if this is a term param, give it a new id
-    - if this is a prop, turn it into a formula
-    - no terms should show up after any prop
-    - there is a more precise fragment criterion we assume (unchecked):
-      - prop terms are not proof dependant (i.e. on each other)
-      - FOR NOW: some inductive param/concl explicitly depends on each term param 
-  *)
-
   (* all variables are local, and the formula is prenex
-    so just name the variables 0..n-1
+    so just store the variables and name them 0..n-1
   *)
   let vmap, prop_args =
     (* both of these are tail rec (modulo cons) *)
     (* trying to do them both together is not necessarily great *)
-    let ann_vs = List.take_while (is_inductive_prop env sigma << snd) annotated_args in
+    let ann_vs =
+      annotated_args
+      |> List.map snd 
+      |> List.take_while (is_inductive_prop env sigma) 
+    in
     let vs = ann_vs
-      |> List.map (binder_name << fst)
+      (* do we need to look inside? *)
+      (* |> List.map (binder_name << fst)
       |> List.map (function
         | Name.Name id -> id
         | Name.Anonymous -> failwith "TODO: Anonymous name in clause_of_type"
-      )
+      ) *)
     in
     let prop_args = annotated_args
       |> List.drop_while (is_inductive_prop env sigma << snd)
