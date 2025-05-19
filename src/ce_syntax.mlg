@@ -16,6 +16,13 @@ TACTIC EXTEND DoNothing
   }
 END
 
+TACTIC EXTEND horndfs
+| [ "horndfs" ] ->
+  {
+    Ce_api.horn_proof_search ()
+  }
+END
+
 TACTIC EXTEND ChcAuto
 | [ "chc_auto" ] ->
   {
