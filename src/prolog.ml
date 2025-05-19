@@ -115,7 +115,7 @@ let rec print_proof_tree (pt: proof_tree) : string =
 let empty_subst = []
 
 (* Check if `a` maps to `b` under `sub` *)
-let substs sub a b = List.assoc a sub = b
+let substs sub a b = List.assoc_opt a sub = Some b
 
 (* add a substitution to a substitution list *)
 let subst_add sub a b = (a, b) :: List.remove_assoc a sub
@@ -127,7 +127,8 @@ let subst_add_unsafe sub a b = (a, b) :: sub
 let rec apply_subst sub t =
   match t with
   | Var v -> 
-    (try List.assoc v sub with Not_found -> t)
+    List.assoc_opt v sub
+      |> Option.cata identity t
   | Fun (f, args) -> 
     Fun (f, List.map (apply_subst sub) args)
 
@@ -152,7 +153,9 @@ let rec term_matches (partial: subst option) (t1: term) (t2: term) : subst optio
       if v1 = v2 then Some s
       else if substs s v1 (Var v2) then Some s
       else Some (subst_add_unsafe s v1 (Var v2))
-
+    | Var v, Fun (f, args) ->
+      if substs s v (Fun (f, args)) then Some s
+      else Some (subst_add_unsafe s v (Fun (f, args)))
     | Fun (f1, args1), Fun (f2, args2) when f1 = f2 && List.length args1 = List.length args2 ->
       List.fold_left2 term_matches (Some s) args1 args2
 
@@ -210,7 +213,6 @@ let dfs (clauses: clause_set) (goal: formula) : proof_tree option =
       in
       match fact_opt with
       | Some f -> 
-        (* found a fact, return it *)
         let proof = Some (Leaf f) in
         Hashtbl.add proof_cache goal proof;
         proof
