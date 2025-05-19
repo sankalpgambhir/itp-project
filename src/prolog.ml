@@ -18,7 +18,6 @@ open Coutils
 (* term algebra T(F, X) *)
 type var = int
 
-
 type term = 
   | Var of var (* a var is implicitly universally quantified in clauses *)
   | Fun of int * term list
@@ -48,13 +47,18 @@ type formula =
   | Atom of predicate * term list
 
 type clause = 
-  | Clause of int * formula * formula list (* head :- body1 /\ body2 /\ ... *)
+  (* 
+    id, number of variables, head, body
+    
+    head :- body1 /\ body2 /\ ... 
+  *)
+  | Clause of int * int * formula * formula list 
 
 let is_fact = function
-  | Clause (_, Atom _, []) -> true
+  | Clause (_, _, Atom _, []) -> true
   | _ -> false
 
-let clause_of f = Clause (f, [])
+let clause_of f = Clause (0, 0, f, [])
 
 (* fact database *)
 type db = clause list
@@ -62,6 +66,9 @@ type db = clause list
 type clause_set = clause list
 
 type subst = (var * term) list
+
+type iclause =
+  | IClause of subst * clause
 
 let empty_subst = []
 
@@ -89,8 +96,8 @@ let apply_subst_formula sub f =
     Atom (p, List.map (apply_subst sub) ts)
 
 (* apply a substitution to a clause *)
-let apply_subst_clause sub (Clause (head, body)) =
-  Clause (apply_subst_formula sub head, List.map (apply_subst_formula sub) body)
+let apply_subst_clause sub (Clause (id, nv, head, body)) =
+  Clause (id, nv, apply_subst_formula sub head, List.map (apply_subst_formula sub) body)
 
 (* returns a minimal substitution if t1 can be matched against t2, by
 instantiating variables in t1 alone, None if no matches *)
@@ -119,7 +126,7 @@ let matches (f1: formula) (f2: formula) : subst option =
 
 let match_and_resolve (clause: clause) (goal: formula): formula list option =
   match clause with
-  | Clause (head, body) ->
+  | Clause (id, nv, head, body) ->
     let sub_opt = matches head goal in
     match sub_opt with
     | None -> None
@@ -186,7 +193,7 @@ let dfs (clauses: clause_set) (goal: formula) : clause list option =
           explore cs' db g gs acc
   in
   let opt_dest_fact = function 
-    | Clause (f, []) -> Some f 
+    | Clause (_, _, f, []) -> Some f 
     | _ -> None
   in
   let db = List.filter_map opt_dest_fact clauses in

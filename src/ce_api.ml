@@ -125,13 +125,21 @@ and constr_list_to_term env sigma vmap (tmap: constrtbl) (ts: econstr list) : Pr
   args', tmap'
 
 (* create a mapping from terms to internal formulas *)
-let constr_to_formula env sigma vmap (tmap: constrtbl) (t: econstr) : Prolog.formula * constrtbl =
+let rec constr_to_formula env sigma vmap (tmap: constrtbl) (t: econstr) : Prolog.formula * constrtbl =
   (* requires: the term is a prop possibly applied to something *)
   let func, args = decompose_app sigma t in
   let fid = hashtbl_get_or_inc tmap func in
   let args_list = Array.to_list args in
   let args', tmap' = constr_list_to_term env sigma vmap tmap args_list in
   Prolog.Atom ((Prolog.Predicate fid), args'), tmap'
+and constr_list_to_formula env sigma vmap (tmap: constrtbl) (ts: econstr list) : Prolog.formula list * constrtbl =
+  let args', tmap' =
+    List.fold_right (fun t (acc, tmap) -> 
+      let (t', tmap') = constr_to_formula env sigma vmap tmap t in
+      (t' :: acc, tmap')
+    ) ts ([], tmap)  
+  in
+  args', tmap'
 
 (* construct an internal wrapped clause from a constructor type *)
 let clause_of_type env sigma (cstr_id: int) (ty: etypes) : Prolog.clause =
@@ -187,12 +195,13 @@ let clause_of_type env sigma (cstr_id: int) (ty: etypes) : Prolog.clause =
   in
 
   let empty_tmap = Hashtbl.create 32 in
-  let to_form = constr_to_formula env sigma vmap empty_tmap in
 
-  let clause_body = List.map to_form prop_args in
-  let clause_head = to_form concl in
+  let to_form = constr_list_to_formula env sigma vmap in
+
+  let clause_body, tmap = constr_list_to_formula env sigma vmap empty_tmap prop_args in
+  let clause_head, _ = constr_to_formula env sigma vmap tmap concl in
   
-  Clause (cstr_id, clause_head, clause_body)
+  Prolog.Clause (cstr_id, List.length vmap, clause_head, clause_body)
 
 (* check if a constructor type can be written as a (quantified) Horn clause *)
 let is_type_prenex_horn env sigma (t: etypes) : bool =
