@@ -146,7 +146,7 @@ and constr_list_to_formula env sigma vmap (tmap: constrtbl) (ts: econstr list) :
   args', tmap'
 
 (* construct an internal wrapped clause from a constructor type *)
-let clause_of_type env sigma (cstr_id: int) (ty: etypes) : Prolog.clause =
+let clause_of_type env sigma (tmap: constrtbl) (cstr_id: int) (ty: etypes)  : Prolog.clause * constrtbl =
   (*
     Process:
 
@@ -162,6 +162,20 @@ let clause_of_type env sigma (cstr_id: int) (ty: etypes) : Prolog.clause =
   (* decompose the product type *)
   (* and separate the term arguments, i.e. non-props *)
   let (annotated_args, concl) = decompose_prod sigma ty in
+
+  (* extract the term variables from this type*)
+  let vs =
+    annotated_args
+    |> List.drop_while (is_inductive_prop env sigma << snd)
+    |> List.map (binder_name << fst)
+    |> List.map (function
+      | Name.Name id -> mkVar id
+      | Name.Anonymous -> failwith "TODO: Anonymous term binder in clause_of_type"
+    )
+  in
+
+  (* recompute args after reducing term level quantifiers *)
+  let (annotated_args, concl) = decompose_prod sigma (Reductionops.hnf_prod_applist env sigma ty vs) in
 
   (* 
     each annotated argument is a pair of (name, relevance) 
@@ -179,38 +193,25 @@ let clause_of_type env sigma (cstr_id: int) (ty: etypes) : Prolog.clause =
   (* all variables are local, and the formula is prenex
     so just store the variables and name them 0..n-1
   *)
-  let vmap, prop_args =
-    (* both of these are tail rec (modulo cons) *)
-    (* trying to do them both together is not necessarily great *)
-    let ann_vs =
-      annotated_args
-      |> List.map snd 
-      |> List.take_while (is_inductive_prop env sigma) 
-    in
-    let vs = ann_vs
-      (* do we need to look inside? *)
-      (* |> List.map (binder_name << fst)
-      |> List.map (function
-        | Name.Name id -> id
-        | Name.Anonymous -> failwith "TODO: Anonymous name in clause_of_type"
-      ) *)
-    in
-    let prop_args = annotated_args
-      |> List.drop_while (is_inductive_prop env sigma << snd)
-      |> List.map snd 
-      (* discarding names is fine if the inner terms are not dependent on us (shouldn't be) *)
-    in
-    List.map_i (fun idx x -> x, idx) 0 vs, prop_args
+  let prop_args = annotated_args
+    |> List.rev
+    |> List.drop_while (not << is_inductive_prop env sigma << snd)
+    |> List.map snd 
+    (* discarding names is fine if the inner terms are not dependent on us (shouldn't be) *)
+  in
+
+  let vmap =
+    List.map_i (fun idx x -> x, idx) 0 vs
   in
 
   let empty_tmap = Hashtbl.create 32 in
 
   let to_form = constr_list_to_formula env sigma vmap in
 
-  let clause_body, tmap = constr_list_to_formula env sigma vmap empty_tmap prop_args in
-  let clause_head, _ = constr_to_formula env sigma vmap tmap concl in
-  
-  Prolog.Clause (cstr_id, List.length vmap, clause_head, clause_body)
+  let clause_body, tmap' = constr_list_to_formula env sigma vmap tmap prop_args in
+  let clause_head, tmap'' = constr_to_formula env sigma vmap tmap concl in
+
+  Prolog.Clause (cstr_id, List.length vmap, clause_head, clause_body), tmap''
 
 (* check if a constructor type can be written as a (quantified) Horn clause *)
 let is_type_prenex_horn env sigma (t: etypes) : bool =
@@ -226,14 +227,55 @@ let is_type_prenex_horn env sigma (t: etypes) : bool =
   in
 
   let (annotated_args, concl) = decompose_prod sigma t in
-  let args = List.map snd annotated_args in
+  let args = annotated_args |> List.map snd |> List.rev in
 
   is_ip concl && (is_prenex_horn args)
 
 let is_typed_cons_horn env sigma ((_, cons_ty): econstr * etypes) : bool =
   is_type_prenex_horn env sigma cons_ty  
 
-let horn_proof_search : unit PV.tactic =
+(* reconstruct a rocq proof term from an internal proof tree *)
+(* all branches of the proof must be fully instantiated *)
+let proof_tree_to_term 
+  (consmap: int -> econstr option) 
+  (idtmap: (int, econstr) Hashtbl.t) 
+  (tree: Prolog.proof_tree) : econstr = 
+  let rec taux = function
+    | Prolog.Var v -> 
+      CErrors.user_err (Pp.str "Reconstruction failure: Variable inside substitution mapping")
+    | Prolog.Fun (f, args) ->
+      let args' = args |> List.map taux |> List.rev in
+      let ft = Hashtbl.find idtmap f in
+      EConstr.mkApp (ft, Array.of_list args')
+  in
+  let rec aux = function
+    | Prolog.Leaf (Prolog.IClause (subst, Clause(idx, nv, _, _))) ->
+      (* assert List.length subst = nv *)
+      let constr = Option.get (consmap idx) in
+      let var_args = subst
+        |> List.sort_uniq (fun (a, _) (b, _) -> Stdlib.compare a b)
+        |> List.map (taux << snd) 
+        (* variable assignments shouldn't refer to other vars *)
+      in
+      EConstr.mkApp (constr, Array.of_list var_args)
+    | Prolog.Node (Prolog.IClause (subst, Clause(idx, nv, _, _)), branches) ->
+      (* assert List.length subst = nv *)
+      let constr = Option.get (consmap idx) in
+      let var_args = subst
+        |> List.sort_uniq (fun (a, _) (b, _) -> Stdlib.compare a b)
+        |> List.map (taux << snd)
+        (* variable assignments shouldn't refer to other vars *)
+      in
+      let proof_args = List.map aux branches in
+      let args = Array.of_list (List.rev (var_args @ proof_args)) in
+      EConstr.mkApp (constr, args)
+    | Prolog.Open _ ->
+      CErrors.user_err (Pp.str "Open branches in proof tree")
+  in
+
+  aux tree
+
+let horn_proof_search () : unit PV.tactic =
   PV.Goal.enter begin fun gl ->
     let env = Proofview.Goal.env gl in
     let sigma = Proofview.Goal.sigma gl in
@@ -246,7 +288,6 @@ let horn_proof_search : unit PV.tactic =
         let msg = Pp.str "The goal is not an inductive proposition." in
         CErrors.user_err msg
     in
-
     (* extract all the inductives we have to look at *)
     let reachable_indfs =
       reachable_inductive_families env sigma indf
@@ -268,16 +309,40 @@ let horn_proof_search : unit PV.tactic =
     type, turning the type into a clause *)
     let get_or_add_cons, get_cons_by_id = create_cons_map in
 
-    let cons_clauses =
+    let (cons_clauses, tmap) =
       cons_w_types
-      |> List.map begin fun (cstr, cstr_ty) ->
+      |> List.fold_left begin fun (clauses, tmap) (cstr, cstr_ty) ->
         let cstr_id = get_or_add_cons cstr in
-        let cstr_clause = clause_of_type env sigma cstr_id cstr_ty in
-        cstr_clause
-      end
+        let cstr_clause, tmap' = clause_of_type env sigma tmap cstr_id cstr_ty in
+        cstr_clause :: clauses, tmap'
+      end ([], Hashtbl.create 64)
     in
-    
-    Tacticals.tclIDTAC
+
+    let goal =
+      (* convert as a clause but throw away the wrapper *)
+      (* keeping just the head formula *)
+      Prolog.dest_hd (fst (clause_of_type env sigma tmap 0 concl))
+    in
+
+    match Prolog.dfs cons_clauses goal with
+    | None -> 
+      let msg = Pp.str "No proof found." in
+      CErrors.user_err msg
+    | Some proof_tree ->
+      (* reconstruct a rocq term from the proof tree *)
+      let idtmap = 
+        (* flip tmap to get a mapping from integers to terms *)
+        let new_map = Hashtbl.create (Hashtbl.length tmap) in
+        Hashtbl.iter (fun k v -> Hashtbl.add new_map v k) tmap;
+        new_map
+      in
+      let tt = 
+        proof_tree_to_term get_cons_by_id idtmap proof_tree 
+      in
+
+      Tactics.exact_check tt
+
+      (* Tacticals.tclIDTAC *)
   end
 
 let do_nothing i : unit PV.tactic =
