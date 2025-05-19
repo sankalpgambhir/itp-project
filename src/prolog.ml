@@ -3,10 +3,15 @@
     Prolog-like proof search engine
 *)
 
-(* utils *)
+open Coutils
 
-(* function composition *)
-let (<<) f g x = f(g(x))
+(*
+  TODO: REWRITE WRT CHANGED CLAUSES
+
+  Every clause should carry an integer ID, and we cannot just reduce clauses
+  dynamically without care. We need to be sure that the ID is preserved,
+  alongside the instantiations that led to the reduction.
+*)
 
 (* Formula definitions *)
 
@@ -43,10 +48,10 @@ type formula =
   | Atom of predicate * term list
 
 type clause = 
-  | Clause of formula * formula list (* head :- body1 /\ body2 /\ ... *)
+  | Clause of int * formula * formula list (* head :- body1 /\ body2 /\ ... *)
 
 let is_fact = function
-  | Clause (Atom _, []) -> true
+  | Clause (_, Atom _, []) -> true
   | _ -> false
 
 let clause_of f = Clause (f, [])
