@@ -5,11 +5,15 @@ Inductive PP: nat -> Prop :=
   | P1 {n} : PP n -> PP (S n).
 
 Inductive QQ: Prop :=
-  | Q0 : QQ.
+  | Q0 : RR -> QQ
+with RR : Prop :=
+  | R0 : RR
+.
 
 (* Test simple inductive goal *)
-Goal PP 5.
+Goal QQ.
   Show Proof.
+  dno 5.
   chc_auto.
   Show Proof.
 Qed.
