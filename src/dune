@@ -1,19 +1,16 @@
 (library
- (name CoLog)                       ; This is the name you will use in
-                                    ; Coq's `Declare ML Module`, and
-                                    ; the name of the main OCaml
-                                    ; module of your plugin.
-
- (public_name colog.plugin) 
-
+ (name CoLog)
+ (public_name colog.plugin)
  (synopsis "Coq Plugin for Automatic Discharge of Inductive Prop Goals")
  (flags :standard -w -27 -w -33 -w -26)
- 
- (libraries                         ; OCaml libraries we want to link with
-   coq-core.vernac                  ; Needed for vernac extend.
-   coq-core.plugins.ltac            ; Needed for tactic extend.
- )
-)
+ (libraries ; OCaml libraries we want to link with
+  coq-core.vernac ; Needed for vernac extend.
+  coq-core.plugins.ltac ; Needed for tactic extend.
+  coq-core.plugins.micromega ; Needed for lia tactic.
+  coq-core.plugins.ltac2 ; Needed for ltac2 support.
+  ))
 
 ; This will let Dune know about Coq's .mlg grammar files.
-(coq.pp (modules ce_syntax))
+
+(coq.pp
+ (modules ce_syntax))

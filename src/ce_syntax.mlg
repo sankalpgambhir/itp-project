@@ -1,12 +1,8 @@
 DECLARE PLUGIN "colog.plugin"
 
-
 {
-
 open Ltac_plugin
-(*open Pp*)
 open Stdarg
-
 }
 
 TACTIC EXTEND DoNothing
@@ -28,8 +24,28 @@ TACTIC EXTEND ChcAuto
   {
     Ce_api.chc_auto ()
   }
-| [ "chc_auto" "with" "depth" int(d) ] ->
+| [ "chc_auto" "with" ne_ident_list(opts) ] ->
   {
-    Ce_api.chc_auto ~max_depth:d ()
+    let depth_opt = ref None in
+    let deepening = ref false in
+    let memo = ref true in
+    let error = ref None in
+
+    List.iter (fun id ->
+      let opt_str = Names.Id.to_string id in
+      match opt_str with
+      | "deepening" -> deepening := true
+      | "no_memo" -> memo := false
+      | s when String.length s >= 6 && String.sub s 0 6 = "depth=" ->
+          let depth_str = String.sub s 6 (String.length s - 6) in
+          (try depth_opt := Some (int_of_string depth_str)
+           with Failure _ -> error := Some ("Invalid depth value: " ^ depth_str))
+      | s ->
+          error := Some ("Unknown option: " ^ s))
+      opts;
+
+    match !error with
+    | Some msg -> Tacticals.tclFAIL ~info:Exninfo.null (Pp.str msg)
+    | None -> Ce_api.chc_auto ?max_depth:!depth_opt ~use_deepening:!deepening ~use_memo:!memo ()
   }
 END
