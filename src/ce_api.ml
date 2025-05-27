@@ -107,20 +107,20 @@ let cons_of_families env _sigma (indfs: inductive_family list) : (econstr * etyp
     |> List.concat
 
 (* create a mapping from (rocq) terms to internal terms *)
-let rec constr_to_term env sigma vmap (tmap: constrtbl) (t: econstr) : Prolog.term * constrtbl =
+let rec constr_to_term env sigma vmap (tmap: constrtbl) (t: econstr) : Term.term * constrtbl =
   (* we assume a first-order abstraction over the terms *)
   (* functions are not checked or expanded further *)
   (* arguments are transformed recursively *)
   if isVar sigma t && List.mem_assoc t vmap then
     let vi = List.assoc t vmap in
-    Prolog.Var vi, tmap
+    Term.Var vi, tmap
   else 
     let func, args = decompose_app sigma t in
     let fid = hashtbl_get_or_inc tmap func in
     let args_list = Array.to_list args in
     let args', tmap' = constr_list_to_term env sigma vmap tmap args_list in
-    Prolog.Fun (fid, args'), tmap'
-and constr_list_to_term env sigma vmap (tmap: constrtbl) (ts: econstr list) : Prolog.term list * constrtbl =
+    Term.Fun (fid, args'), tmap'
+and constr_list_to_term env sigma vmap (tmap: constrtbl) (ts: econstr list) : Term.term list * constrtbl =
   let args', tmap' =
     List.fold_right (fun t (acc, tmap) -> 
       let (t', tmap') = constr_to_term env sigma vmap tmap t in
@@ -130,14 +130,14 @@ and constr_list_to_term env sigma vmap (tmap: constrtbl) (ts: econstr list) : Pr
   args', tmap'
 
 (* create a mapping from terms to internal formulas *)
-let rec constr_to_formula env sigma vmap (tmap: constrtbl) (t: econstr) : Prolog.formula * constrtbl =
+let rec constr_to_formula env sigma vmap (tmap: constrtbl) (t: econstr) : Term.formula * constrtbl =
   (* requires: the term is a prop possibly applied to something *)
   let func, args = decompose_app sigma t in
   let fid = hashtbl_get_or_inc tmap func in
   let args_list = Array.to_list args in
   let args', tmap' = constr_list_to_term env sigma vmap tmap args_list in
-  Prolog.Atom ((Prolog.Predicate fid), args'), tmap'
-and constr_list_to_formula env sigma vmap (tmap: constrtbl) (ts: econstr list) : Prolog.formula list * constrtbl =
+  Term.Atom ((Term.Predicate fid), args'), tmap'
+and constr_list_to_formula env sigma vmap (tmap: constrtbl) (ts: econstr list) : Term.formula list * constrtbl =
   let args', tmap' =
     List.fold_right (fun t (acc, tmap) -> 
       let (t', tmap') = constr_to_formula env sigma vmap tmap t in
@@ -242,9 +242,9 @@ let proof_tree_to_term
   (idtmap: (int, econstr) Hashtbl.t) 
   (tree: Prolog.proof_tree) : econstr = 
   let rec taux = function
-    | Prolog.Var v -> 
+    | Term.Var v -> 
       CErrors.user_err (Pp.str "Reconstruction failure: Variable inside substitution mapping")
-    | Prolog.Fun (f, args) ->
+    | Term.Fun (f, args) ->
       let args' = args |> List.map taux |> List.rev in
       let ft = Hashtbl.find idtmap f in
       EConstr.mkApp (ft, Array.of_list args')
