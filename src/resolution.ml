@@ -131,9 +131,45 @@ let refine_subst_freshen (s: subst) : subst =
       | (v, t) -> (v, freshen_vars t) 
     end
 
-let find_matching (cls: clause list) (goal: formula) : (clause * subst) option =
-  (* find a clause that matches the goal *)
+type clause_db = (int, (clause list)) Hashtbl.t
+
+let construct_db (cls: clause list) : clause_db =
+  let tbl = Hashtbl.create 64 in
+  let head_weight (f: formula): int = 
+    let rec term_weight (t: term): int =
+      match t with
+      | Var _ -> 3
+      | Fun (_, args) -> 1 + List.fold_left (fun acc a -> acc + term_weight a) 0 args
+    in
+    match f with
+    | Atom (_, args) -> List.fold_left (fun acc a -> acc + term_weight a) 0 args
+  in
+  let cmp c1 c2 = 
+    head_weight (Clause.hd c1) - head_weight (Clause.hd c2)
+  in
   cls
+  |> List.iter begin function 
+      | Clause (id, _, pos, neg) ->
+        (* store clauses by their head literal *)
+        let headid = match pos with
+          | [] -> failwith "construct_db: clause has no positive literals"
+          | Atom (Predicate id, _) :: _ -> id
+        in
+        let existing = Hashtbl.find_opt tbl headid |> Option.default [] in
+        Hashtbl.replace tbl headid (Clause (id, 0, pos, neg) :: existing)
+    end;
+  (* sort the clauses by head weight *)
+  Hashtbl.filter_map_inplace (fun _ v -> Some (List.sort cmp v)) tbl;
+  tbl
+
+let find_matching (cls: clause_db) (goal: formula) : (clause * subst) option =
+  (* find a clause that matches the goal *)
+  let pred_id = 
+    match goal with
+    | Atom (Predicate id, _) -> id
+  in
+  Hashtbl.find_opt cls pred_id
+  |> Option.default []
   |> List.find_map begin fun c ->
       match formula_matches (Clause.hd c) goal with
       | None -> None
@@ -141,9 +177,14 @@ let find_matching (cls: clause list) (goal: formula) : (clause * subst) option =
         Some (c, subst)
     end
 
-let find_unifier (cls: clause list) (goal: formula) : (clause * subst) option =
+let find_unifier (cls: clause_db) (goal: formula) : (clause * subst) option =
   (* find a clause that unifies with the goal *)
-  cls
+  let pred_id = 
+    match goal with
+    | Atom (Predicate id, _) -> id
+  in
+  Hashtbl.find_opt cls pred_id
+  |> Option.default []
   |> List.find_map begin fun c ->
       match formula_unifies (Clause.hd c) goal with
       | None -> None
@@ -155,7 +196,7 @@ let find_unifier (cls: clause list) (goal: formula) : (clause * subst) option =
 let resolution_proof (cls: clause list) (goal: formula) : proof_tree option =
   (* invariant: goal is always a set of positive literals *)
   (* invariant: db clauses are always definite Horn *)
-  let rec aux (db: clause list) (goal: formula list): (subst * proof_tree) option =
+  let rec aux (db: clause_db) (goal: formula list): (subst * proof_tree) option =
     (* if goal is empty, we have a proof *)
     match goal with
     | [] -> 
@@ -179,6 +220,7 @@ let resolution_proof (cls: clause list) (goal: formula) : proof_tree option =
           end
         |> Option.flatten
       in
-  aux cls [goal]
+  let db = construct_db cls in
+  aux db [goal]
     |> Option.map snd
 
