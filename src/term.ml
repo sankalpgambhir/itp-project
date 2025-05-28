@@ -93,24 +93,26 @@ let apply_subst_formula sub f =
   | Atom (p, ts) -> 
     Atom (p, List.map (apply_subst sub) ts)
 
+let rec occurs (v: var) (t: term) : bool =
+  match t with
+  | Var v' -> v = v'
+  | Fun (_, args) -> List.exists (occurs v) args
+
 (* returns a minimal substitution if t1 can be matched against t2, by
 instantiating variables in t1 alone, None if no matches *)
 let rec term_matches (partial: subst option) (t1: term) (t2: term) : subst option =
   match partial with
   | None -> None
   | Some s ->
-    match t1, t2 with
-    | Var v1, Var v2 -> 
-      if v1 = v2 then Some s
-      else if substs s v1 (Var v2) then Some s
-      else Some (subst_add_unsafe s v1 (Var v2))
-    | Var v, Fun (f, args) ->
-      if substs s v (Fun (f, args)) then Some s
-      else Some (subst_add_unsafe s v (Fun (f, args)))
+    let u = apply_subst s t1 in
+    let v = apply_subst s t2 in
+    match u, v with
+    | _ when u = v -> Some s
+    | Var v1, Var v2 when v1 = v2 -> Some s
+    | Var v, t when not (occurs v t) -> Some (subst_add_unsafe s v t)
     | Fun (f1, args1), Fun (f2, args2) when f1 = f2 && List.compare_lengths args1 args2 = 0 ->
       List.fold_left2 term_matches (Some s) args1 args2
-
-    | _ -> None 
+    | _ -> None
 
 (* returns a minimal substitution if f1 can be matched against f2, by
 instantiating variables in f1 alone, None if no matches *)
@@ -119,11 +121,6 @@ let formula_matches (f1: formula) (f2: formula) : subst option =
   | Atom (p, ts), Atom (q, ss) when p = q && List.compare_lengths ts ss = 0 ->
       List.fold_left2 term_matches (Some empty_subst) ts ss
   | _ -> None
-
-let rec occurs (v: var) (t: term) : bool =
-  match t with
-  | Var v' -> v = v'
-  | Fun (_, args) -> List.exists (occurs v) args
 
 (* left biased term unification; will always attempt to instantiate the left when both sides are variables *)
 let rec term_unifies (partial: subst option) (t1: term) (t2: term): subst option =
