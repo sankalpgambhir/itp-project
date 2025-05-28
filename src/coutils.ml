@@ -38,3 +38,11 @@ let hashtbl_get_or_inc tbl k =
       let v = Hashtbl.length tbl in
       Hashtbl.add tbl k v;
       v
+
+(* If an option is Some, keep it, else evaluate `f` to get a new optional value
+in its place *)
+let or_else f opta =
+  match opta with
+  | Some a -> Some a
+  | None -> f ()
+
