@@ -19,6 +19,13 @@ TACTIC EXTEND horndfs
   }
 END
 
+TACTIC EXTEND hornres
+| [ "hornres" ] ->
+  {
+    Ce_api.resolution_proof_search ()
+  }
+END
+
 TACTIC EXTEND ChcAuto
 | [ "chc_auto" ] ->
   {
