@@ -192,12 +192,25 @@ let find_unifier (cls: clause_db) (goal: formula) : (clause * subst) option =
         Some (c, subst)
     end
 
+let is_interpreted: formula -> bool = function
+  | Atom (Predicate id , _) -> id < 0
+
+let inconsistent_interpreted (goal: formula list) : bool =
+  (* check if the goal is inconsistent with accumulated interpreted predicates *)
+  (* goal
+    |> List.filter is_interpreted
+    |> Smt.is_unsat *)
+  false
+
 (* resolution proof search *)
 let resolution_proof (cls: clause list) (goal: formula) : proof_tree option =
   (* invariant: goal is always a set of positive literals *)
   (* invariant: db clauses are always definite Horn *)
   let rec aux (visited: Formula_set.t) (db: clause_db) (goal: formula list): (subst * proof_tree) option =
     (* if goal is empty, we have a proof *)
+    if inconsistent_interpreted goal then
+      None
+    else
     match goal with
     | [] -> 
       Some (empty_subst, End)
@@ -205,6 +218,7 @@ let resolution_proof (cls: clause list) (goal: formula) : proof_tree option =
       (* goal already visited, branch is impossible *)
       None
     | gl :: rest ->
+      let _ = Feedback.msg_debug (Pp.str ("Resolution: trying to resolve goal " ^ (string_of_formula gl))) in
       (* mark goal as visited *)
       (* try to resolve the first goal by matching *)
       (* if that fails, try to unify to resolve evars *)

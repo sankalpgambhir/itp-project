@@ -180,3 +180,21 @@ module Literal_set = Set.Make(
     | Pos f1, Pos f2 -> fcompare f1 f2
     | Neg f1, Neg f2 -> fcompare f1 f2
 end)
+
+(* On interpreted terms and predicates *)
+
+let interpreted_predicates : (string * int) list =
+  [
+    "le";
+    "lt";
+    "ge";
+    "gt";
+  ]
+  |> List.mapi (fun i s -> s, -i - 1)
+
+let interpreted_functions : (string * int) list =
+  [
+    "0";
+    "S";
+  ]
+  |> List.mapi (fun i s -> s, -i - 1)

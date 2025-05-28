@@ -2,13 +2,15 @@
  (name CoLog)
  (public_name colog.plugin)
  (synopsis "Coq Plugin for Automatic Discharge of Inductive Prop Goals")
- (flags :standard -w -27 -w -33 -w -26)
+ (flags :standard -w -27 -w -33 -w -26 -linkall -cclib -lz3 -ccopt -fPIC -cclib)
  (libraries ; OCaml libraries we want to link with
   coq-core.vernac ; Needed for vernac extend.
   coq-core.plugins.ltac ; Needed for tactic extend.
   coq-core.plugins.micromega ; Needed for lia tactic.
   coq-core.plugins.ltac2 ; Needed for ltac2 support.
-  ))
+  z3
+  )
+  )
 
 ; This will let Dune know about Coq's .mlg grammar files.
 

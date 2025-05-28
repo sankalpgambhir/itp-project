@@ -116,7 +116,12 @@ let rec constr_to_term env sigma vmap (tmap: constrtbl) (t: econstr) : Term.term
     Term.Var vi, tmap
   else 
     let func, args = decompose_app sigma t in
-    let fid = hashtbl_get_or_inc tmap func in
+    let fid =
+      let name = Pp.string_of_ppcmds (pr_econstr_env env sigma func) in
+      List.assoc_opt name Term.interpreted_functions 
+        |> Option.map (fun i -> Hashtbl.replace tmap func i; i)
+        |> Option.default (hashtbl_get_or_inc tmap func) 
+    in
     let args_list = Array.to_list args in
     let args', tmap' = constr_list_to_term env sigma vmap tmap args_list in
     Term.Fun (fid, args'), tmap'
@@ -133,7 +138,12 @@ and constr_list_to_term env sigma vmap (tmap: constrtbl) (ts: econstr list) : Te
 let rec constr_to_formula env sigma vmap (tmap: constrtbl) (t: econstr) : Term.formula * constrtbl =
   (* requires: the term is a prop possibly applied to something *)
   let func, args = decompose_app sigma t in
-  let fid = hashtbl_get_or_inc tmap func in
+  let fid =
+    let name = Pp.string_of_ppcmds (pr_econstr_env env sigma func) in
+    List.assoc_opt name Term.interpreted_predicates
+      |> Option.map (fun i -> Hashtbl.replace tmap func i; i)
+      |> Option.default (hashtbl_get_or_inc tmap func) 
+  in
   let args_list = Array.to_list args in
   let args', tmap' = constr_list_to_term env sigma vmap tmap args_list in
   Term.Atom ((Term.Predicate fid), args'), tmap'
