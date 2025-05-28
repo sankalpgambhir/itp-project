@@ -67,7 +67,7 @@ let string_of_proof_tree pp =
         |> List.map (string_of_term << snd)
         |> String.concat ", "
       in
-      [Printf.sprintf "Axiom: %s subst %s" (string_of_clause c) subs]
+      [Printf.sprintf "Axiom: %s %d %d subst %s" (string_of_clause c) id nv subs]
     | Resolution (f, p1, p2) ->
       ("Resolution: " ^ (string_of_formula f)) ::
         (indent (stringify p1)) @
@@ -196,12 +196,16 @@ let find_unifier (cls: clause_db) (goal: formula) : (clause * subst) option =
 let resolution_proof (cls: clause list) (goal: formula) : proof_tree option =
   (* invariant: goal is always a set of positive literals *)
   (* invariant: db clauses are always definite Horn *)
-  let rec aux (db: clause_db) (goal: formula list): (subst * proof_tree) option =
+  let rec aux (visited: Formula_set.t) (db: clause_db) (goal: formula list): (subst * proof_tree) option =
     (* if goal is empty, we have a proof *)
     match goal with
     | [] -> 
       Some (empty_subst, End)
+    | gl :: _ when Formula_set.mem gl visited ->
+      (* goal already visited, branch is impossible *)
+      None
     | gl :: rest ->
+      (* mark goal as visited *)
       (* try to resolve the first goal by matching *)
       (* if that fails, try to unify to resolve evars *)
       find_matching db gl 
@@ -211,7 +215,8 @@ let resolution_proof (cls: clause list) (goal: formula) : proof_tree option =
             let new_goals = List.map (apply_subst_freshen subst) (Clause.neg c) in
             (* order is important, matches the stack behaviour of `Tactics.apply` *)
             let next = new_goals @ rest' in
-            let inner_proof = aux db next in
+            let visited' = Formula_set.add gl visited in
+            let inner_proof = aux visited' db next in
             match inner_proof with
             | None -> None
             | Some (inner_subst, inner_proof) ->
@@ -221,6 +226,7 @@ let resolution_proof (cls: clause list) (goal: formula) : proof_tree option =
         |> Option.flatten
       in
   let db = construct_db cls in
-  aux db [goal]
+  let visited = Formula_set.empty in
+  aux visited db [goal]
     |> Option.map snd
 
