@@ -276,6 +276,57 @@ let proof_tree_to_term
 
   aux tree
 
+let tactic_from_res_tree 
+  env sigma
+  (consmap: int -> econstr option) 
+  (idtmap: (int, econstr) Hashtbl.t) 
+  (tree: Resolution.proof_tree) : unit PV.tactic =
+  let rec taux = function
+    | Term.Var v -> 
+      CErrors.user_err (Pp.str "Reconstruction failure: Variable inside substitution mapping")
+    | Term.Fun (f, args) ->
+      let args' = args |> List.map taux |> List.rev in
+      let ft = Hashtbl.find idtmap f in
+      EConstr.mkApp (ft, Array.of_list args')
+  in
+  let rec aux (tree: Resolution.proof_tree): unit PV.tactic list =
+    match tree with 
+    | Resolution.End ->
+      (* proof should be complete when reaching the end *)
+      []
+    | Resolution.Resolution (pivot, p1, p2) ->
+      let p1_tac = aux p1 in
+      let p2_tac = aux p2 in
+      p1_tac @ p2_tac
+    | Resolution.Axiom (Clause (id, nv, _, _), subst) -> 
+      let cons = consmap id in
+      match cons with
+      | None -> 
+        CErrors.user_err (Pp.str "Reconstruction failure: No constructor found for axiom" ++ Pp.int id)
+      | Some constr ->
+        let var_args = subst
+          |> List.filter (fun (a, _) -> a >= 0) (* filter out negative/internal indices *)
+          |> List.sort_uniq (fun (a, _) (b, _) -> Stdlib.compare a b)
+          |> List.map (taux << snd) 
+          |> List.take nv
+          (* variable assignments shouldn't refer to other vars *)
+        in
+        let vv = subst
+          |> List.filter (fun (a, _) -> a >= 0) (* filter out negative/internal indices *)
+          |> List.sort_uniq (fun (a, _) (b, _) -> Stdlib.compare a b)
+          |> List.map (snd) 
+          |> List.take nv
+          (* variable assignments shouldn't refer to other vars *)
+        in
+        (* apply the constructor to the arguments *)
+        (* this is a tactic that will be applied to the goal *)
+        let tt = EConstr.mkApp (constr, Array.of_list var_args) in
+        (* apply the term to the goal *)
+        [Tactics.eapply tt]
+  in
+  aux tree
+    |> List.fold_left Tacticals.tclTHENFIRST tclIDTAC
+
 let horn_proof_search () : unit PV.tactic =
   PV.Goal.enter begin fun gl ->
     let env = Proofview.Goal.env gl in
@@ -342,6 +393,78 @@ let horn_proof_search () : unit PV.tactic =
       in
 
       Tactics.exact_check tt
+  end
+
+
+let resolution_proof_search () : unit PV.tactic =
+  PV.Goal.enter begin fun gl ->
+    let env = Proofview.Goal.env gl in
+    let sigma = Proofview.Goal.sigma gl in
+    let concl = Proofview.Goal.concl gl in
+
+    let IndType (indf, realargs) =
+      match dest_inductive_prop env sigma concl with
+      | Some indf -> indf
+      | None ->
+        let msg = Pp.str "The goal is not an inductive proposition." in
+        CErrors.user_err msg
+    in
+    (* extract all the inductives we have to look at *)
+    let reachable_indfs =
+      reachable_inductive_families env sigma indf
+    in
+
+    (* collect the constructors and their types *)
+    (* check that they are well formed wrt our fragment *)
+    let cons_w_types = cons_of_families env sigma reachable_indfs in
+    let _well_formedness_check =
+      match List.find_opt (not << is_typed_cons_horn env sigma) cons_w_types with
+      | Some (cstr, cstr_ty) ->
+        let base_msg = Pp.str "The reachable set of inductive families is not in the prenex-Horn fragment. Violating constructor: " in
+        let ctr_name = Printer.pr_econstr_env env sigma cstr in
+        CErrors.user_err (base_msg ++ ctr_name)
+      | None -> () (* all constructors can be turned into clauses *)
+    in
+
+    (* to each constructor, assign an identifier, and dissociate it and its
+    type, turning the type into a clause *)
+    let get_or_add_cons, get_cons_by_id = create_cons_map in
+
+    let (cons_clauses, tmap) =
+      cons_w_types
+      |> List.fold_left begin fun (clauses, tmap) (cstr, cstr_ty) ->
+        let cstr_id = get_or_add_cons cstr in
+        let cstr_clause, tmap' = clause_of_type env sigma tmap cstr_id cstr_ty in
+        cstr_clause :: clauses, tmap'
+      end ([], Hashtbl.create 64)
+    in
+
+    let goal =
+      (* convert as a clause but throw away the wrapper *)
+      (* keeping just the head formula *)
+      Prolog.dest_hd (fst (clause_of_type env sigma tmap 0 concl))
+    in
+
+    let to_res = function
+      | Prolog.Clause (idx, nv, hd, bd) ->
+          Resolution.Clause (idx, nv, [hd], bd)
+    in
+
+    match Resolution.resolution_proof (List.map to_res cons_clauses) goal with
+    | None -> 
+      let msg = Pp.str "No proof found." in
+      CErrors.user_err msg
+    | Some proof_tree ->
+      (* reconstruct a rocq term from the proof tree *)
+      let idtmap = 
+        (* flip tmap to get a mapping from integers to terms *)
+        let new_map = Hashtbl.create (Hashtbl.length tmap) in
+        Hashtbl.iter (fun k v -> Hashtbl.add new_map v k) tmap;
+        new_map
+      in
+
+      tactic_from_res_tree env sigma get_cons_by_id idtmap proof_tree
+
   end
 
 let do_nothing i : unit PV.tactic =
