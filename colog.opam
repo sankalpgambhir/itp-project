@@ -1,18 +1,25 @@
 opam-version: "2.0"
-maintainer: "Simon Guilloud"
+maintainer: "Sankalp Gambhir, Auguste Poiroux"
 version: "dev"
 
-homepage: "https://github.com/SimonGuilloud/orthologic-coq"
-dev-repo: "git+https://github.com/SimonGuilloud/orthologic-coq.git"
-bug-reports: "https://github.com/SimonGuilloud/orthologic-coq/issues"
-license: "CC-BY-4.0"
+homepage: "https://github.com/sankalpgambhir/itp-project"
+dev-repo: "git+https://github.com/sankalpgambhir/itp-project.git"
+bug-reports: "https://github.com/sankalpgambhir/itp-project/issues"
+license: "Apache-2.0"
 
-synopsis: "A plugin to add orthologic-based tactics to Coq"
+synopsis: "A Coq plugin for automating proofs involving inductive relations using Constrained Horn Clauses"
 description: """
-Orthologic-based reasoning is super great.
-This plugin proposes a verified and optimized implementation of orthologic proof search, with memoization and pointer equality.
-It also provides an ocaml-based tactic that computes orthologic normal form, and a boolean tautology solver
-based on it."""
+This plugin establishes a connection between inductively defined propositions in Coq and
+Constrained Horn Clauses (CHCs), developing tactics that leverage established proof search techniques
+from the CHC literature to automate inductive proofs.
+
+It provides an extensible framework that handles both first-order relations and integrates
+theory reasoning, implementing specialized tactics that prune proof search based on constraint validity.
+
+The plugin provides two main tactics:
+- chc_auto: Programmatically composes existing Coq tactics through proof tree search
+- hornres: Explicitly constructs Horn clauses from inductive definitions and performs
+  Prolog-like proof search independent of Coq's tactic system"""
 
 build: ["dune" "build" "-p" name "-j" jobs]
 depends: [
@@ -23,11 +30,11 @@ depends: [
 
 tags: [
   "category:Miscellaneous/Coq Extensions"
-  "keyword:orthologic"
-  "logpath:OLCoq"
+  "keyword:inductive"
+  "logpath:Inductive"
 ]
 
 authors: [
-  "Simon Guilloud"
-  "Clément Pit-Claudel"
+  "Sankalp Gambhir"
+  "Auguste Poiroux"
 ]
