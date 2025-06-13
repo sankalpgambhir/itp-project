@@ -20,14 +20,17 @@ dune build
 
 ### Available Tactics
 
-- `chc_auto`: Main tactic for automatic proof search
+First tactic based on the composition of existing Coq tactics for automatic proof search:
+
+- `chc_auto`:
   - Options:
     - `depth=<n>`: Set maximum search depth
     - `deepening`: Use iterative deepening search
     - `no_memo`: Disable memoization
   - Example: `chc_auto with depth=10 deepening.`
 
-- `dno <n>`: Utility tactic (do nothing)
+Second set of tactics based on explicit extraction and reconstruction:
+
 - `horndfs`: Horn clause proof search using depth-first strategy
 - `hornres`: Horn clause proof search using resolution strategy
 
