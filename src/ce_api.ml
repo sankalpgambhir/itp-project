@@ -23,6 +23,7 @@ open Auto
 open Evd
 open Coutils
 open Micromega_plugin
+open Proofview
 
 module PV = Proofview
 
@@ -600,15 +601,21 @@ let rec solve_inductive_goal solved_goals max_depth depth gl =
   let sigma = Proofview.Goal.sigma gl in
   let concl = Proofview.Goal.concl gl in
 
-  with_memoization
-    (fun () ->
-      if depth > max_depth then
-        Tacticals.tclFAIL ~info:Exninfo.null (Pp.str "Exceeded maximum search depth")
-      else
+  let max_depth_reached =
+    match max_depth with
+    | None -> false
+    | Some d when depth >= d -> true
+    | _ -> false
+  in
+  if max_depth_reached then
+    Tacticals.tclFAIL ~info:Exninfo.null (Pp.str "Exceeded maximum search depth")
+  else
+    with_memoization
+      (fun () ->
         match try Some (pf_apply Tacred.reduce_to_atomic_ind gl concl) with _ -> None with
         | Some ((ind, u), t) ->
             let IndType (indf, _realargs) = find_rectype env sigma t in
-            let constrs = Inductiveops.get_constructors env indf in
+            let constrs = get_constructors env indf in
 
             (* Try each constructor with backtracking *)
             let rec try_constructors = function
@@ -622,7 +629,13 @@ let rec solve_inductive_goal solved_goals max_depth depth gl =
                       (Proofview.Goal.enter (solve_subgoals solved_goals max_depth (depth + 1)))
                   in
                   (* If this constructor doesn't work, try the next one *)
-                  Tacticals.tclORELSE try_this_constructor (try_constructors rest)
+                  Tacticals.tclORELSE try_this_constructor (
+                    Tacticals.tclORELSE (Tacticals.tclFIRST [
+                      Tactics.reflexivity;
+                      Tactics.assumption;
+                      trivial_tac ();
+                      lia_tac ()
+                    ]) (try_constructors rest))
             in
             try_constructors (Array.to_list constrs)
 
@@ -635,8 +648,8 @@ let rec solve_inductive_goal solved_goals max_depth depth gl =
               lia_tac ();
               Tacticals.tclFAIL ~info:Exninfo.null (Pp.str "Not an inductive goal and no direct tactic applies")
             ]
-    )
-    solved_goals env sigma concl
+      )
+      solved_goals env sigma concl
 
 (* Try to solve all subgoals recursively with backtracking *)
 and solve_subgoals solved_goals max_depth depth gl =
@@ -651,7 +664,6 @@ and solve_subgoals solved_goals max_depth depth gl =
           solve_inductive_goal solved_goals max_depth depth gl;
           Tactics.reflexivity;
           Tactics.assumption;
-          Tactics.simpl_in_concl;
           trivial_tac ();
           lia_tac ();
           (* Equality.discriminate; *)
@@ -663,16 +675,22 @@ and solve_subgoals solved_goals max_depth depth gl =
 (* Iterative deepening search to find the shallowest proof *)
 let iterative_deepening_search solved_goals max_depth gl =
   let rec try_with_depth d =
-    if d > max_depth then
+    let max_depth_reached =
+      match max_depth with
+      | None -> false
+      | Some depth when d > depth -> true
+      | _ -> false
+    in
+    if max_depth_reached then
       Tacticals.tclFAIL ~info:Exninfo.null (Pp.str "Exceeded maximum search depth")
     else
       Tacticals.tclORELSE
-        (solve_inductive_goal solved_goals d 0 gl)
+        (solve_inductive_goal solved_goals (Some d) 0 gl)
         (try_with_depth (d + 1))
   in
   try_with_depth 1
 
-let chc_auto ?(max_depth=20) ?(use_deepening=false) ?(use_memo=true) () =
+let chc_auto ?(max_depth) ?(use_deepening=false) ?(use_memo=true) () =
   (* Memoization table to avoid redundant work *)
   let solved_goals = if use_memo then Some (Hashtbl.create 50) else None in
 
